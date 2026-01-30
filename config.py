@@ -1,3 +1,4 @@
+
 import os
 from dotenv import load_dotenv
 
@@ -10,7 +11,7 @@ class Config:
     # آیدی عددی کانال مقصد (مثلاً: -1001234567890)
     TARGET_CHANNEL = os.getenv('TARGET_CHANNEL', '')
     
-    # پورت برای وب‌سرور (اختیاری)
+    # پورت برای وب‌سرور
     PORT = int(os.getenv('PORT', 5000))
     
     # آدرس وب‌هوک (برای deploy روی سرور)
@@ -25,4 +26,4 @@ class Config:
     # مقداردهی ADMIN_IDS
     admin_ids_str = os.getenv('ADMIN_IDS', '')
     if admin_ids_str:
-        ADMIN_IDS = list(map(int, admin_ids_str.split(',')))
+        ADMIN_IDS = [int(x.strip()) for x in admin_ids_str.split(',') if x.strip()]
