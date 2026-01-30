@@ -20,4 +20,9 @@ class Config:
     DATA_FILE = 'subscribed_groups.json'
     
     # دسترسی ادمین‌ها (آیدی عددی)
-    ADMIN_IDS = list(map(int, os.getenv('ADMIN_IDS', '').split(','))) if os.get
+    ADMIN_IDS = []
+    
+    # مقداردهی ADMIN_IDS
+    admin_ids_str = os.getenv('ADMIN_IDS', '')
+    if admin_ids_str:
+        ADMIN_IDS = list(map(int, admin_ids_str.split(',')))
