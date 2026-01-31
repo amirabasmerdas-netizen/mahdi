@@ -1,6 +1,232 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+ربات ساده فوروارد - حداقل وابستگی
+"""
+
+import os
+import logging
+import asyncio
+from datetime import datetime
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# تنظیمات ساده
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ذخیره تنظیمات در متغیرهای ساده
+SOURCE_GROUP = None
+DEST_CHANNEL = None
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /start"""
+    await update.message.reply_text("🤖 ربات فوروارد فعال است!")
+    logger.info(f"Start از {update.effective_chat.id}")
+
+async def setgroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /setgroup"""
+    global SOURCE_GROUP
+    chat = update.effective_chat
+    
+    if chat.type not in ['group', 'supergroup']:
+        await update.message.reply_text("❌ فقط در گروه!")
+        return
+    
+    SOURCE_GROUP = str(chat.id)
+    await update.message.reply_text(f"✅ گروه تنظیم شد: {SOURCE_GROUP}")
+    logger.info(f"گروه تنظیم شد: {SOURCE_GROUP}")
+
+async def setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /setchannel"""
+    global DEST_CHANNEL
+    
+    if not context.args:
+        await update.message.reply_text("❌ شناسه کانال را وارد کنید")
+        return
+    
+    DEST_CHANNEL = context.args[0].strip()
+    await update.message.reply_text(f"✅ کانال تنظیم شد: {DEST_CHANNEL}")
+    logger.info(f"کانال تنظیم شد: {DEST_CHANNEL}")
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /test"""
+    if not SOURCE_GROUP or not DEST_CHANNEL:
+        await update.message.reply_text("❌ ابتدا گروه و کانال را تنظیم کنید")
+        return
+    
+    await update.message.reply_text("🔄 تست...")
+    test_msg = await update.message.reply_text("پیام تست")
+    await test_msg.forward(chat_id=DEST_CHANNEL)
+    await update.message.reply_text("✅ تست موفق!")
+    logger.info("تست انجام شد")
+
+async def forward_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فوروارد همه پیام‌ها"""
+    global SOURCE_GROUP, DEST_CHANNEL
+    
+    if not SOURCE_GROUP or not DEST_CHANNEL:
+        return
+    
+    chat_id = str(update.effective_chat.id)
+    
+    if chat_id != SOURCE_GROUP:
+        return
+    
+    try:
+        await update.message.forward(chat_id=DEST_CHANNEL)
+        logger.info(f"پیام فوروارد شد از {chat_id} به {DEST_CHANNEL}")
+    except Exception as e:
+        logger.error(f"خطا در فوروارد: {e}")
+
+async def main():
+    """تابع اصلی"""
+    if not BOT_TOKEN:
+        logger.error("❌ توکن یافت نشد!")
+        return
+    
+    print("🤖 ربات فوروارد - در حال راه‌اندازی...")
+    
+    # ساخت Application
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # افزودن هندلرها
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setgroup", setgroup))
+    app.add_handler(CommandHandler("setchannel", setchannel))
+    app.add_handler(CommandHandler("test", test))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, forward_all))
+    
+    # اطلاعات ربات
+    bot = await app.bot.get_me()
+    print(f"✅ ربات: @{bot.username}")
+    print("📡 در حال گوش دادن...")
+    
+    # اجرای ربات
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+ربات ساده فوروارد - حداقل وابستگی
+"""
+
+import os
+import logging
+import asyncio
+from datetime import datetime
+
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# تنظیمات ساده
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# ذخیره تنظیمات در متغیرهای ساده
+SOURCE_GROUP = None
+DEST_CHANNEL = None
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /start"""
+    await update.message.reply_text("🤖 ربات فوروارد فعال است!")
+    logger.info(f"Start از {update.effective_chat.id}")
+
+async def setgroup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /setgroup"""
+    global SOURCE_GROUP
+    chat = update.effective_chat
+    
+    if chat.type not in ['group', 'supergroup']:
+        await update.message.reply_text("❌ فقط در گروه!")
+        return
+    
+    SOURCE_GROUP = str(chat.id)
+    await update.message.reply_text(f"✅ گروه تنظیم شد: {SOURCE_GROUP}")
+    logger.info(f"گروه تنظیم شد: {SOURCE_GROUP}")
+
+async def setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /setchannel"""
+    global DEST_CHANNEL
+    
+    if not context.args:
+        await update.message.reply_text("❌ شناسه کانال را وارد کنید")
+        return
+    
+    DEST_CHANNEL = context.args[0].strip()
+    await update.message.reply_text(f"✅ کانال تنظیم شد: {DEST_CHANNEL}")
+    logger.info(f"کانال تنظیم شد: {DEST_CHANNEL}")
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """دستور /test"""
+    if not SOURCE_GROUP or not DEST_CHANNEL:
+        await update.message.reply_text("❌ ابتدا گروه و کانال را تنظیم کنید")
+        return
+    
+    await update.message.reply_text("🔄 تست...")
+    test_msg = await update.message.reply_text("پیام تست")
+    await test_msg.forward(chat_id=DEST_CHANNEL)
+    await update.message.reply_text("✅ تست موفق!")
+    logger.info("تست انجام شد")
+
+async def forward_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فوروارد همه پیام‌ها"""
+    global SOURCE_GROUP, DEST_CHANNEL
+    
+    if not SOURCE_GROUP or not DEST_CHANNEL:
+        return
+    
+    chat_id = str(update.effective_chat.id)
+    
+    if chat_id != SOURCE_GROUP:
+        return
+    
+    try:
+        await update.message.forward(chat_id=DEST_CHANNEL)
+        logger.info(f"پیام فوروارد شد از {chat_id} به {DEST_CHANNEL}")
+    except Exception as e:
+        logger.error(f"خطا در فوروارد: {e}")
+
+async def main():
+    """تابع اصلی"""
+    if not BOT_TOKEN:
+        logger.error("❌ توکن یافت نشد!")
+        return
+    
+    print("🤖 ربات فوروارد - در حال راه‌اندازی...")
+    
+    # ساخت Application
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # افزودن هندلرها
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("setgroup", setgroup))
+    app.add_handler(CommandHandler("setchannel", setchannel))
+    app.add_handler(CommandHandler("test", test))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, forward_all))
+    
+    # اطلاعات ربات
+    bot = await app.bot.get_me()
+    print(f"✅ ربات: @{bot.username}")
+    print("📡 در حال گوش دادن...")
+    
+    # اجرای ربات
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 ربات فوروارد پیام از گروه به کانال - نسخه 21.7
 """
 
@@ -367,3 +593,4 @@ class TelegramForwardBot:
 if __name__ == "__main__":
     bot = TelegramForwardBot()
     bot.run()
+
