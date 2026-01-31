@@ -1,15 +1,12 @@
 services:
   - type: web
-    name: telegram-group-forwarder
+    name: telegram-group-forward-bot
     env: python
-    region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: PORT
-        value: 10000
-    healthCheckPath: /health
+    healthCheckPath: /
     autoDeploy: true
     plan: free
