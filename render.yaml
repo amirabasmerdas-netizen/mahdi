@@ -1,14 +1,19 @@
 services:
   - type: web
-    name: telegram-forward-bot
+    name: telegram-group-to-channel-forwarder
     env: python
+    region: frankfurt  # یا نزدیک‌ترین منطقه به شما
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-        value: "توکن_ربات_خود_را_اینجا_قرار_دهید"
+        description: "توکن ربات تلگرام از @BotFather"
+      - key: WEBHOOK_URL
+        sync: false
+        fromGroup: webhook_url_group
       - key: PORT
-        value: 8080
-    plan: free
+        value: 10000
+    healthCheckPath: /health
     autoDeploy: true
+    plan: free
