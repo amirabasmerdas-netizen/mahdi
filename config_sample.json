@@ -1,9 +1,12 @@
 {
-    "source_chat_id": "",
-    "destination_chat_id": "",
-    "bot_token": "توکن_ربات_خود_را_اینجا_قرار_دهید",
-    "admin_id": "8588773170",
+    "source_group_id": "",
+    "destination_channel_id": "",
+    "bot_token": "",
+    "admin_id": "",
+    "webhook_url": "",
+    "forward_all": true,
+    "forward_text": true,
+    "forward_media": true,
+    "forward_documents": true,
     "last_updated": ""
 }
-
-
