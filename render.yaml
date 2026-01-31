@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: telegram-forward-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+        value: "توکن_ربات_خود_را_اینجا_قرار_دهید"
+      - key: PORT
+        value: 8080
+    plan: free
+    autoDeploy: true
