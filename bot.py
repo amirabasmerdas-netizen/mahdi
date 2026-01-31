@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ربات فوروارد گروه به کانال - نسخه پایدار
+ربات فوروارد گروه به کانال - نسخه 21.7
 """
 
 import os
@@ -9,31 +9,34 @@ import json
 import logging
 import sys
 from datetime import datetime
-from time import sleep
-
-# وارد کردن کتابخانه‌های تلگرام
-try:
-    from telegram import Update, ParseMode
-    from telegram.ext import (
-        Updater,
-        CommandHandler,
-        MessageHandler,
-        Filters,
-        CallbackContext
-    )
-    print("✅ کتابخانه‌های تلگرام با موفقیت وارد شدند")
-except ImportError as e:
-    print(f"❌ خطا در وارد کردن کتابخانه‌ها: {e}")
-    print("لطفا مطمئن شوید requirements.txt شامل 'python-telegram-bot==13.15' است")
-    sys.exit(1)
 
 # تنظیمات لاگ
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    stream=sys.stdout  # ارسال لاگ به stdout برای دیدن در Render
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # ارسال به stdout برای Render
+        logging.FileHandler('bot.log', encoding='utf-8')
+    ]
 )
 logger = logging.getLogger(__name__)
+
+# تلاش برای وارد کردن کتابخانه‌ها
+try:
+    print("📦 در حال وارد کردن کتابخانه‌های تلگرام...")
+    from telegram import Update
+    from telegram.ext import (
+        Application,
+        CommandHandler,
+        MessageHandler,
+        filters,
+        ContextTypes
+    )
+    print("✅ کتابخانه‌های تلگرام با موفقیت وارد شدند")
+except ImportError as e:
+    print(f"❌ خطا در وارد کردن کتابخانه‌ها: {e}")
+    print("📌 لطفا مطمئن شوید requirements.txt شامل 'python-telegram-bot==21.7' است")
+    sys.exit(1)
 
 # متغیرهای جهانی برای تنظیمات
 SOURCE_GROUP = None
@@ -66,7 +69,7 @@ def save_settings():
         logger.error(f"خطا در ذخیره تنظیمات: {e}")
 
 # دستورات ربات
-def start_command(update: Update, context: CallbackContext):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دستور /start"""
     chat = update.effective_chat
     
@@ -102,17 +105,17 @@ def start_command(update: Update, context: CallbackContext):
 /status - وضعیت
         """
     
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text)
     logger.info(f"Start از {chat.id}")
 
-def set_command(update: Update, context: CallbackContext):
+async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دستور /set"""
     global SOURCE_GROUP
     
     chat = update.effective_chat
     
     if chat.type not in ['group', 'supergroup']:
-        update.message.reply_text("❌ این دستور فقط در گروه‌ها قابل استفاده است!")
+        await update.message.reply_text("❌ این دستور فقط در گروه‌ها قابل استفاده است!")
         return
     
     SOURCE_GROUP = str(chat.id)
@@ -128,22 +131,22 @@ def set_command(update: Update, context: CallbackContext):
 `/channel @کانال_شما`
     """
     
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text)
     logger.info(f"گروه تنظیم شد: {chat.id}")
 
-def channel_command(update: Update, context: CallbackContext):
+async def channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دستور /channel"""
     global DEST_CHANNEL
     
     if not context.args:
-        update.message.reply_text("❌ شناسه کانال را وارد کنید\nمثال: `/channel @my_channel`", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("❌ شناسه کانال را وارد کنید\nمثال: `/channel @my_channel`")
         return
     
     channel = context.args[0].strip()
     
     # اعتبارسنجی شناسه کانال
     if not (channel.startswith('@') or channel.startswith('-100')):
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ شناسه کانال نامعتبر!\n"
             "✅ باید با @ شروع شود (مثل @channel)\n"
             "✅ یا با -100 شروع شود (شناسه عددی)"
@@ -165,28 +168,27 @@ def channel_command(update: Update, context: CallbackContext):
 برای تست: `/test`
     """
     
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text)
     logger.info(f"کانال تنظیم شد: {channel}")
 
-def test_command(update: Update, context: CallbackContext):
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دستور /test"""
     if not SOURCE_GROUP or not DEST_CHANNEL:
-        update.message.reply_text(
+        await update.message.reply_text(
             "❌ ابتدا گروه و کانال را تنظیم کنید!\n\n"
             f"گروه: {'✅ تنظیم شده' if SOURCE_GROUP else '❌ تنظیم نشده'}\n"
             f"کانال: {'✅ تنظیم شده' if DEST_CHANNEL else '❌ تنظیم نشده'}\n\n"
             "دستورات:\n"
             "/set - تنظیم گروه\n"
-            "/channel @کانال - تنظیم کانال",
-            parse_mode=ParseMode.MARKDOWN
+            "/channel @کانال - تنظیم کانال"
         )
         return
     
     try:
-        update.message.reply_text("🔄 در حال تست فوروارد...")
+        await update.message.reply_text("🔄 در حال تست فوروارد...")
         
         # ایجاد پیام تست
-        test_msg = update.message.reply_text(f"""
+        test_msg = await update.message.reply_text(f"""
 🧪 **تست فوروارد ربات**
 ⏰ {datetime.now().strftime('%H:%M:%S')}
 📅 {datetime.now().strftime('%Y-%m-%d')}
@@ -195,28 +197,28 @@ def test_command(update: Update, context: CallbackContext):
 🎯 مقصد: {DEST_CHANNEL}
 
 ✅ اگر این پیام را می‌بینید، تست موفق بود!
-        """, parse_mode=ParseMode.MARKDOWN)
+        """)
         
         # فوروارد پیام تست به کانال
-        test_msg.forward(chat_id=DEST_CHANNEL)
+        await test_msg.forward(chat_id=DEST_CHANNEL)
         
-        update.message.reply_text("✅ تست موفقیت‌آمیز بود!")
+        await update.message.reply_text("✅ تست موفقیت‌آمیز بود!")
         logger.info(f"تست فوروارد انجام شد از {SOURCE_GROUP} به {DEST_CHANNEL}")
         
     except Exception as e:
         error_msg = str(e)
-        update.message.reply_text(f"❌ خطا در تست:\n{error_msg[:150]}")
+        await update.message.reply_text(f"❌ خطا در تست:\n{error_msg[:150]}")
         logger.error(f"خطا در تست فوروارد: {e}")
         
         # تشخیص نوع خطا
         if "Forbidden" in error_msg:
-            update.message.reply_text("⚠️ احتمالاً ربات در کانال ادمین نیست!")
+            await update.message.reply_text("⚠️ احتمالاً ربات در کانال ادمین نیست!")
         elif "Chat not found" in error_msg:
-            update.message.reply_text("⚠️ کانال یافت نشد! شناسه کانال را بررسی کنید.")
+            await update.message.reply_text("⚠️ کانال یافت نشد! شناسه کانال را بررسی کنید.")
         elif "Not enough rights" in error_msg:
-            update.message.reply_text("⚠️ ربات در کانال دسترسی کافی ندارد!")
+            await update.message.reply_text("⚠️ ربات در کانال دسترسی کافی ندارد!")
 
-def status_command(update: Update, context: CallbackContext):
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دستور /status"""
     text = f"""
 📊 **وضعیت ربات**
@@ -235,13 +237,13 @@ def status_command(update: Update, context: CallbackContext):
 /test - تست
     """
     
-    update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text)
 
 # تابع اصلی فوروارد پیام‌ها
-def forward_messages(update: Update, context: CallbackContext):
+async def forward_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """فوروارد تمام پیام‌های گروه به کانال"""
     
-    # دیباگ: لاگ تمام پیام‌های دریافتی
+    # لاگ پیام دریافتی
     chat = update.effective_chat
     chat_id = str(chat.id)
     
@@ -261,7 +263,7 @@ def forward_messages(update: Update, context: CallbackContext):
     
     try:
         # فوروارد پیام
-        update.message.forward(chat_id=DEST_CHANNEL)
+        await update.message.forward(chat_id=DEST_CHANNEL)
         logger.info("✅ پیام با موفقیت فوروارد شد")
         
     except Exception as e:
@@ -277,17 +279,17 @@ def forward_messages(update: Update, context: CallbackContext):
         except:
             pass
 
-def error_handler(update: Update, context: CallbackContext):
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """مدیریت خطاها"""
     logger.error(f"خطا در پردازش: {context.error}")
 
-def main():
-    """تابع اصلی"""
+async def main():
+    """تابع اصلی async"""
     
     print("=" * 60)
     print("🤖 ربات فوروارد گروه به کانال")
-    print("🚀 نسخه پایدار با python-telegram-bot==13.15")
-    print(f"🐍 پایتون: {sys.version}")
+    print("🚀 نسخه 21.7 - سازگار با Python 3.13")
+    print(f"🐍 پایتون: {sys.version.split()[0]}")
     print("=" * 60)
     
     # بارگذاری تنظیمات
@@ -306,49 +308,49 @@ def main():
     print("🔄 در حال راه‌اندازی ربات...")
     
     try:
-        # ایجاد Updater
-        updater = Updater(token=TOKEN, use_context=True)
-        
-        # گرفتن Dispatcher
-        dp = updater.dispatcher
+        # ایجاد Application
+        app = Application.builder().token(TOKEN).build()
         
         # افزودن دستورات
-        dp.add_handler(CommandHandler("start", start_command))
-        dp.add_handler(CommandHandler("set", set_command))
-        dp.add_handler(CommandHandler("channel", channel_command))
-        dp.add_handler(CommandHandler("test", test_command))
-        dp.add_handler(CommandHandler("status", status_command))
+        app.add_handler(CommandHandler("start", start_command))
+        app.add_handler(CommandHandler("set", set_command))
+        app.add_handler(CommandHandler("channel", channel_command))
+        app.add_handler(CommandHandler("test", test_command))
+        app.add_handler(CommandHandler("status", status_command))
         
         # افزودن هندلر برای فوروارد پیام‌ها
-        # تمام پیام‌ها به جز دستورات
-        dp.add_handler(MessageHandler(
-            Filters.all & ~Filters.command,
+        app.add_handler(MessageHandler(
+            filters.ALL & ~filters.COMMAND,
             forward_messages
         ))
         
         # مدیریت خطا
-        dp.add_error_handler(error_handler)
+        app.add_error_handler(error_handler)
         
         # گرفتن اطلاعات ربات
-        bot = updater.bot
-        bot_info = bot.get_me()
-        print(f"✅ ربات: @{bot_info.username}")
-        print(f"🤖 نام: {bot_info.first_name}")
+        bot = await app.bot.get_me()
+        print(f"✅ ربات: @{bot.username}")
+        print(f"🤖 نام: {bot.first_name}")
         print("📡 شروع به گوش دادن برای پیام‌ها...")
         print("=" * 60)
         
         # شروع polling
-        updater.start_polling(
+        await app.run_polling(
             drop_pending_updates=True,
-            timeout=20
+            allowed_updates=None  # همه بروزرسانی‌ها
         )
-        
-        # نگه داشتن ربات فعال
-        updater.idle()
         
     except Exception as e:
         print(f"❌ خطای بحرانی: {e}")
         logger.error(f"خطای بحرانی: {e}", exc_info=True)
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    
+    # اجرای main با asyncio.run
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 ربات متوقف شد")
+    except Exception as e:
+        print(f"❌ خطا: {e}")
