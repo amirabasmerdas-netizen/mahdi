@@ -232,7 +232,7 @@ def create_app():
     bot = ForwardBot()
     
     # اگر توکن ربات در متغیرهای محیطی وجود دارد
-    token = os.environ.get('TELEGRAM_BOT_TOKEN')
+    token = os.environ.get('TELEGRAM_BOT_TOKEN',"8574884910:AAGNF8jpjM-SXEsrEb1rsHW6obxbWEs90sQ")
     webhook_url = os.environ.get('WEBHOOK_URL')
     
     if token:
@@ -265,3 +265,4 @@ async def main():
 if __name__ == '__main__':
     import asyncio
     asyncio.run(main())
+
