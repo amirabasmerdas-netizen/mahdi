@@ -190,12 +190,13 @@ class TelegramGroupToChannelForwarder:
         def webhook():
             """دریافت بروزرسانی‌های تلگرام"""
             if request.method == 'POST':
-                update = Update.de_json(request.get_json(force=True), self.bot)
-                
-                # اضافه کردن به صف برای پردازش
-                self.message_queue.put(update)
-                
-                return jsonify({'status': 'ok'}), 200
+                try:
+                    update_data = request.get_json(force=True)
+                    logger.info(f"دریافت وب‌هوک: {update_data}")
+                    return jsonify({'status': 'ok'}), 200
+                except Exception as e:
+                    logger.error(f"خطا در پردازش وب‌هوک: {e}")
+                    return jsonify({'error': str(e)}), 500
             
             return jsonify({'error': 'Method not allowed'}), 405
         
@@ -254,7 +255,7 @@ class TelegramGroupToChannelForwarder:
         try:
             self.config.last_updated = datetime.now().isoformat()
             with open('config.json', 'w', encoding='utf-8') as f:
-                json.dump(self.config.to_dict(), f, indent=4, ensure_ascii=False, ensure_ascii=False)
+                json.dump(self.config.to_dict(), f, indent=4, ensure_ascii=False)
             logger.info("تنظیمات ذخیره شد")
         except Exception as e:
             logger.error(f"خطا در ذخیره تنظیمات: {e}")
@@ -616,7 +617,8 @@ class TelegramGroupToChannelForwarder:
         """اجرای سرور Flask"""
         try:
             logger.info(f"🌐 سرور Flask در حال اجرا روی پورت {port}")
-            logger.info(f"🔗 آدرس وب‌هوک: {self.config.webhook_url}/webhook")
+            if self.config.webhook_url:
+                logger.info(f"🔗 آدرس وب‌هوک: {self.config.webhook_url}/webhook")
             
             self.flask_app.run(
                 host='0.0.0.0',
@@ -684,34 +686,37 @@ class TelegramGroupToChannelForwarder:
             logger.info(f"🤖 نام ربات: {bot_info.first_name}")
             logger.info(f"📝 نام کاربری: @{bot_info.username}")
             
-            # تنظیم وب‌هوک
-            webhook_set = await self.setup_webhook()
+            # تنظیم وب‌هوک (اگر آدرس موجود است)
+            if self.config.webhook_url:
+                webhook_set = await self.setup_webhook()
+                if webhook_set:
+                    logger.info("🔄 ربات در حالت وب‌هوک اجرا می‌شود...")
+                    # در حالت وب‌هوک، Flask بروزرسانی‌ها را دریافت می‌کند
+                    # و ما فقط باید برنامه را فعال نگه داریم
+                    self.is_running = True
+                    while self.is_running:
+                        await asyncio.sleep(1)
+                    return
             
-            if webhook_set:
-                # در حالت وب‌هوک، فقط Flask را اجرا می‌کنیم
-                logger.info("🔄 ربات در حالت وب‌هوک اجرا می‌شود...")
-                self.is_running = True
-                
-                # نگه داشتن برنامه فعال
-                while self.is_running:
-                    await asyncio.sleep(1)
-                    
-            else:
-                # حالت fallback: polling
-                logger.info("🔄 ربات در حالت polling اجرا می‌شود...")
-                await self.application.initialize()
-                await self.application.start()
-                
-                self.is_running = True
-                
-                # شروع polling
-                await self.application.updater.start_polling(
-                    allowed_updates=Update.ALL_TYPES,
-                    drop_pending_updates=True
-                )
-                
-                # نگه داشتن ربات فعال
-                await asyncio.Event().wait()
+            # حالت fallback: polling (برای توسعه یا اگر وب‌هوک کار نکرد)
+            logger.info("🔄 ربات در حالت polling اجرا می‌شود...")
+            await self.application.initialize()
+            await self.application.start()
+            
+            self.is_running = True
+            
+            # شروع polling
+            await self.application.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                timeout=10
+            )
+            
+            logger.info("📡 شروع به گوش دادن برای پیام‌ها...")
+            
+            # نگه داشتن ربات فعال
+            while self.is_running:
+                await asyncio.sleep(1)
                 
         except asyncio.CancelledError:
             logger.info("ربات متوقف شد")
@@ -721,13 +726,16 @@ class TelegramGroupToChannelForwarder:
         finally:
             self.is_running = False
             if self.application:
-                await self.application.stop()
-                await self.application.shutdown()
+                try:
+                    await self.application.stop()
+                    await self.application.shutdown()
+                except:
+                    pass
     
     def run(self):
         """اجرای همزمان Flask و Telegram Bot"""
         # گرفتن پورت از متغیر محیطی
-        port = int(os.environ.get('PORT', 8080))
+        port = int(os.environ.get('PORT', 10000))
         
         # تنظیم آدرس وب‌هوک اگر در Render هستیم
         if not self.config.webhook_url:
@@ -746,14 +754,14 @@ class TelegramGroupToChannelForwarder:
         flask_thread.start()
         
         logger.info(f"🌐 وب سرور در حال اجرا روی پورت {port}")
-        logger.info(f"🔗 آدرس سلامت: http://localhost:{port}/health")
-        logger.info(f"📊 وضعیت: http://localhost:{port}/status")
+        logger.info(f"🔗 آدرس سلامت: https://your-app.onrender.com/health")
+        logger.info(f"📊 وضعیت: https://your-app.onrender.com/status")
         
         # اجرای ربات تلگرام در event loop اصلی
         try:
             asyncio.run(self.run_telegram_bot())
         except KeyboardInterrupt:
-            logger.info("ربات متوقف شد")
+            logger.info("\n👋 ربات متوقف شد")
             self.is_running = False
         except Exception as e:
             logger.error(f"خطا در اجرای ربات: {e}")
