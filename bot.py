@@ -25,7 +25,7 @@ print("=" * 60)
 
 # ---------- تنظیمات ----------
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-ADMIN_ID = 601668306  # آیدی مالک اصلی
+ADMIN_ID = 8588773107  # آیدی مالک اصلی
 DB_FILE = 'forward_db.json'
 PORT = int(os.environ.get('PORT', 10000))
 
@@ -687,3 +687,4 @@ if __name__ == "__main__":
         
         # اجرای ربات در thread اصلی
         run_bot_polling()
+
