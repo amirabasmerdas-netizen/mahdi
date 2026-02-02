@@ -1,189 +1,176 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-ربات فوروارد گروه به کانال با وب‌هوک و پنل مدیریت (بدون مالک)
-"""
 
 import os
 import json
 import logging
-import threading
 from datetime import datetime
 from flask import Flask, request, jsonify
+import telebot
 
-# ---------- تنظیمات لاگ ----------
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# ---------------- CONFIG ----------------
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 10000))
+DB_FILE = "forward_db.json"
 
-print("=" * 60)
-print("🤖 ربات فوروارد گروه به کانال")
-print("🚀 نسخه: 2.1 بدون مالک (Admin Only)")
-print("=" * 60)
+# ادمین‌ها (مالک نداریم)
+DEFAULT_ADMINS = [601668306, 8588773170]
 
-# ---------- تنظیمات ----------
-TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
-ADMIN_ID = 601668306  # اولین ادمین
-DB_FILE = 'forward_db.json'
-PORT = int(os.environ.get('PORT', 10000))
+# ---------------- LOG ----------------
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ForwardBot")
 
-# ---------- Flask ----------
-app = Flask(__name__)
-
-# ---------- دیتابیس ----------
+# ---------------- DB ----------------
 def load_db():
-    default_db = {
-        "admins": [ADMIN_ID],
-        "source_groups": [],
-        "forward_settings": {},
-        "users": [],
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        "admins": DEFAULT_ADMINS,
+        "forward_map": {},  # group_id(str) -> channel_id(str)
         "stats": {
-            "messages_forwarded": 0,
-            "last_forward": None,
+            "forwarded": 0,
             "start_time": datetime.now().isoformat()
         }
     }
 
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, 'r', encoding='utf-8') as f:
-                default_db.update(json.load(f))
-        except Exception as e:
-            logger.error(e)
-
-    return default_db
-
-
-def save_db(data):
-    with open(DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
+def save_db():
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(db, f, indent=2, ensure_ascii=False)
 
 db = load_db()
 
-# ---------- دسترسی ----------
-def is_admin(user_id):
-    return user_id in db["admins"]
+# اگر دیتابیس قدیمیه، ادمین‌ها رو سینک کن
+for aid in DEFAULT_ADMINS:
+    if aid not in db["admins"]:
+        db["admins"].append(aid)
+save_db()
 
-def is_authorized(user_id):
-    return is_admin(user_id) or user_id in db["users"]
+# ---------------- ACCESS ----------------
+def is_admin(uid):
+    return uid in db["admins"]
 
-def update_stats():
-    db["stats"]["messages_forwarded"] += 1
-    db["stats"]["last_forward"] = datetime.now().isoformat()
-    save_db(db)
+# ---------------- BOT ----------------
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+app = Flask(__name__)
 
-# ---------- ربات ----------
-class TelegramForwardBot:
-    def __init__(self, token):
-        import telebot
-        self.telebot = telebot
-        self.bot = telebot.TeleBot(token)
-        self.types = telebot.types
-        self.webhook_url = None
-        self.setup_webhook()
-        self.setup_handlers()
+# ---------------- KEYBOARD ----------------
+def admin_kb():
+    kb = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("➕ افزودن فوروارد")
+    kb.add("📊 وضعیت")
+    return kb
 
-    def setup_webhook(self):
-        base = os.environ.get('RENDER_EXTERNAL_URL') or os.environ.get('WEBHOOK_URL')
-        if base:
-            self.webhook_url = f"{base}/webhook"
-            self.bot.remove_webhook()
-            self.bot.set_webhook(url=self.webhook_url)
+# ---------------- COMMANDS ----------------
+@bot.message_handler(commands=["start"])
+def start(m):
+    if not is_admin(m.from_user.id):
+        bot.reply_to(m, "❌ شما ادمین این ربات نیستید.")
+        return
+    bot.reply_to(
+        m,
+        "✅ ربات فوروارد فعال است\n\n"
+        "از دکمه‌ها استفاده کن 👇",
+        reply_markup=admin_kb()
+    )
 
-    def setup_handlers(self):
+# ---------------- STATUS ----------------
+@bot.message_handler(func=lambda m: m.text == "📊 وضعیت")
+def status(m):
+    if not is_admin(m.from_user.id):
+        return
+    bot.reply_to(
+        m,
+        f"""
+📊 <b>وضعیت ربات</b>
 
-        @self.bot.message_handler(commands=['start'])
-        def start(message):
-            if not is_authorized(message.from_user.id):
-                self.bot.reply_to(message, "❌ شما دسترسی ندارید.")
-                return
+• فوروارد شده: {db['stats']['forwarded']}
+• تنظیمات فعال: {len(db['forward_map'])}
+• ادمین‌ها: {len(db['admins'])}
+        """
+    )
 
-            self.bot.reply_to(
-                message,
-                "🤖 ربات فوروارد فعال است",
-                reply_markup=self.main_keyboard()
-            )
+# ---------------- ADD FORWARD ----------------
+@bot.message_handler(func=lambda m: m.text == "➕ افزودن فوروارد")
+def ask_forward(m):
+    if not is_admin(m.from_user.id):
+        return
+    msg = bot.reply_to(
+        m,
+        "🆔 آیدی <b>گروه</b> را بفرست (عدد -100...):"
+    )
+    bot.register_next_step_handler(msg, ask_channel)
 
-        def main_keyboard():
-            kb = self.types.ReplyKeyboardMarkup(resize_keyboard=True)
-            kb.add("📊 وضعیت ربات", "🔧 تنظیم فوروارد")
-            kb.add("➕ افزودن گروه", "🧪 تست فوروارد")
-            return kb
+def ask_channel(m):
+    if not m.text.startswith("-100"):
+        bot.reply_to(m, "❌ آیدی گروه نامعتبره")
+        return
+    group_id = m.text.strip()
 
-        self.main_keyboard = main_keyboard
+    msg = bot.reply_to(
+        m,
+        "🆔 آیدی <b>کانال مقصد</b> را بفرست (عدد -100...):"
+    )
+    bot.register_next_step_handler(msg, save_forward, group_id)
 
-        @self.bot.message_handler(func=lambda m: m.text == "📊 وضعیت ربات")
-        def status(message):
-            self.bot.reply_to(
-                message,
-                f"""
-📊 وضعیت ربات
-• پیام‌های فوروارد شده: {db['stats']['messages_forwarded']}
-• گروه‌ها: {len(db['source_groups'])}
-• تنظیمات: {len(db['forward_settings'])}
-                """
-            )
+def save_forward(m, group_id):
+    if not m.text.startswith("-100"):
+        bot.reply_to(m, "❌ آیدی کانال نامعتبره")
+        return
 
-        @self.bot.message_handler(func=lambda m: m.text == "➕ افزودن گروه")
-        def add_group(message):
-            if not is_admin(message.from_user.id):
-                return
-            msg = self.bot.reply_to(message, "🆔 آیدی گروه را ارسال کن:")
-            self.bot.register_next_step_handler(msg, save_group)
+    channel_id = m.text.strip()
+    db["forward_map"][group_id] = channel_id
+    save_db()
 
-        def save_group(message):
-            gid = message.text.strip()
-            if gid not in db["source_groups"]:
-                db["source_groups"].append(gid)
-                save_db(db)
-                self.bot.reply_to(message, "✅ گروه اضافه شد")
+    bot.reply_to(
+        m,
+        f"✅ فوروارد تنظیم شد:\n\n"
+        f"{group_id} ➜ {channel_id}"
+    )
 
-        @self.bot.message_handler(
-            content_types=['text', 'photo', 'video', 'document', 'audio', 'voice']
+# ---------------- FORWARD ----------------
+@bot.message_handler(
+    content_types=[
+        "text", "photo", "video", "document",
+        "audio", "voice", "sticker", "animation"
+    ]
+)
+def forward_all(m):
+    if m.chat.type not in ["group", "supergroup"]:
+        return
+
+    gid = str(m.chat.id)
+    if gid not in db["forward_map"]:
+        return
+
+    try:
+        bot.forward_message(
+            db["forward_map"][gid],
+            m.chat.id,
+            m.message_id
         )
-        def forward(message):
-            if message.chat.type not in ['group', 'supergroup']:
-                return
+        db["stats"]["forwarded"] += 1
+        save_db()
+    except Exception as e:
+        logger.error(e)
 
-            gid = f"@{message.chat.username}" if message.chat.username else str(message.chat.id)
-            if gid not in db["forward_settings"]:
-                return
-
-            try:
-                self.bot.forward_message(
-                    db["forward_settings"][gid],
-                    message.chat.id,
-                    message.message_id
-                )
-                update_stats()
-            except Exception as e:
-                logger.error(e)
-
-    def process_webhook(self, data):
-        self.bot.process_new_updates(
-            [self.telebot.types.Update.de_json(data)]
-        )
-
-
-bot_instance = TelegramForwardBot(TOKEN) if TOKEN else None
-
-# ---------- Routes ----------
-@app.route('/')
-def home():
-    return jsonify({"status": "online"})
-
-@app.route('/webhook', methods=['POST'])
+# ---------------- WEBHOOK ----------------
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    if bot_instance:
-        bot_instance.process_webhook(request.get_json())
-    return jsonify({"ok": True})
+    update = request.get_json()
+    bot.process_new_updates(
+        [telebot.types.Update.de_json(update)]
+    )
+    return jsonify(ok=True)
 
-# ---------- Run ----------
-def run():
-    app.run(host='0.0.0.0', port=PORT)
+@app.route("/")
+def home():
+    return jsonify(status="online")
 
+# ---------------- RUN ----------------
 if __name__ == "__main__":
-    run()
+    webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if webhook_url:
+        bot.remove_webhook()
+        bot.set_webhook(f"{webhook_url}/webhook")
+    app.run(host="0.0.0.0", port=PORT)
