@@ -1,176 +1,175 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import os
-import json
-import logging
-from datetime import datetime
-from flask import Flask, request, jsonify
-import telebot
-
-# ---------------- CONFIG ----------------
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-PORT = int(os.environ.get("PORT", 10000))
-DB_FILE = "forward_db.json"
-
-# ادمین‌ها (مالک نداریم)
-DEFAULT_ADMINS = [601668306, 8588773170]
-
-# ---------------- LOG ----------------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("ForwardBot")
-
-# ---------------- DB ----------------
-def load_db():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {
-        "admins": DEFAULT_ADMINS,
-        "forward_map": {},  # group_id(str) -> channel_id(str)
-        "stats": {
-            "forwarded": 0,
-            "start_time": datetime.now().isoformat()
-        }
-    }
-
-def save_db():
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, indent=2, ensure_ascii=False)
-
-db = load_db()
-
-# اگر دیتابیس قدیمیه، ادمین‌ها رو سینک کن
-for aid in DEFAULT_ADMINS:
-    if aid not in db["admins"]:
-        db["admins"].append(aid)
-save_db()
-
-# ---------------- ACCESS ----------------
-def is_admin(uid):
-    return uid in db["admins"]
-
-# ---------------- BOT ----------------
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
-app = Flask(__name__)
-
-# ---------------- KEYBOARD ----------------
-def admin_kb():
-    kb = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("➕ افزودن فوروارد")
-    kb.add("📊 وضعیت")
-    return kb
-
-# ---------------- COMMANDS ----------------
-@bot.message_handler(commands=["start"])
-def start(m):
-    if not is_admin(m.from_user.id):
-        bot.reply_to(m, "❌ شما ادمین این ربات نیستید.")
-        return
-    bot.reply_to(
-        m,
-        "✅ ربات فوروارد فعال است\n\n"
-        "از دکمه‌ها استفاده کن 👇",
-        reply_markup=admin_kb()
-    )
-
-# ---------------- STATUS ----------------
-@bot.message_handler(func=lambda m: m.text == "📊 وضعیت")
-def status(m):
-    if not is_admin(m.from_user.id):
-        return
-    bot.reply_to(
-        m,
-        f"""
-📊 <b>وضعیت ربات</b>
-
-• فوروارد شده: {db['stats']['forwarded']}
-• تنظیمات فعال: {len(db['forward_map'])}
-• ادمین‌ها: {len(db['admins'])}
-        """
-    )
-
-# ---------------- ADD FORWARD ----------------
-@bot.message_handler(func=lambda m: m.text == "➕ افزودن فوروارد")
-def ask_forward(m):
-    if not is_admin(m.from_user.id):
-        return
-    msg = bot.reply_to(
-        m,
-        "🆔 آیدی <b>گروه</b> را بفرست (عدد -100...):"
-    )
-    bot.register_next_step_handler(msg, ask_channel)
-
-def ask_channel(m):
-    if not m.text.startswith("-100"):
-        bot.reply_to(m, "❌ آیدی گروه نامعتبره")
-        return
-    group_id = m.text.strip()
-
-    msg = bot.reply_to(
-        m,
-        "🆔 آیدی <b>کانال مقصد</b> را بفرست (عدد -100...):"
-    )
-    bot.register_next_step_handler(msg, save_forward, group_id)
-
-def save_forward(m, group_id):
-    if not m.text.startswith("-100"):
-        bot.reply_to(m, "❌ آیدی کانال نامعتبره")
-        return
-
-    channel_id = m.text.strip()
-    db["forward_map"][group_id] = channel_id
-    save_db()
-
-    bot.reply_to(
-        m,
-        f"✅ فوروارد تنظیم شد:\n\n"
-        f"{group_id} ➜ {channel_id}"
-    )
-
-# ---------------- FORWARD ----------------
-@bot.message_handler(
-    content_types=[
-        "text", "photo", "video", "document",
-        "audio", "voice", "sticker", "animation"
-    ]
+import sqlite3
+from flask import Flask, request
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
 )
-def forward_all(m):
-    if m.chat.type not in ["group", "supergroup"]:
+
+# ========= تنظیمات =========
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+
+ADMINS = [601668306, 8588773170]
+PORT = int(os.environ.get("PORT", 10000))
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
+# ========= دیتابیس =========
+db = sqlite3.connect("db.sqlite", check_same_thread=False)
+cur = db.cursor()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY,
+    source INTEGER,
+    target INTEGER,
+    active INTEGER
+)
+""")
+db.commit()
+
+def is_admin(uid: int) -> bool:
+    return uid in ADMINS
+
+def get_settings():
+    cur.execute("SELECT source, target, active FROM settings WHERE id=1")
+    row = cur.fetchone()
+    return row if row else (None, None, 0)
+
+def save_settings(source=None, target=None, active=None):
+    s, t, a = get_settings()
+    cur.execute(
+        "INSERT OR REPLACE INTO settings (id, source, target, active) VALUES (1, ?, ?, ?)",
+        (
+            source if source is not None else s,
+            target if target is not None else t,
+            active if active is not None else a,
+        ),
+    )
+    db.commit()
+
+# ========= اپلیکیشن =========
+app = Application.builder().token(TOKEN).build()
+
+# ========= /start =========
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ دسترسی نداری")
         return
 
-    gid = str(m.chat.id)
-    if gid not in db["forward_map"]:
+    keyboard = [
+        [
+            InlineKeyboardButton("📥 تنظیم گروه", callback_data="set_group"),
+            InlineKeyboardButton("📤 تنظیم چنل", callback_data="set_channel"),
+        ],
+        [
+            InlineKeyboardButton("▶️ شروع فورواد", callback_data="start_fw"),
+            InlineKeyboardButton("⏹ توقف فورواد", callback_data="stop_fw"),
+        ],
+    ]
+
+    await update.message.reply_text(
+        "🎛 پنل مدیریت ربات",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+# ========= دکمه‌ها =========
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_admin(query.from_user.id):
+        return
+
+    if query.data == "set_group":
+        context.user_data["mode"] = "set_group"
+        await query.edit_message_text("📥 یوزرنیم گروه را ارسال کن (@group)")
+
+    elif query.data == "set_channel":
+        context.user_data["mode"] = "set_channel"
+        await query.edit_message_text("📤 یوزرنیم چنل را ارسال کن (@channel)")
+
+    elif query.data == "start_fw":
+        save_settings(active=1)
+        await query.edit_message_text("✅ فورواد فعال شد")
+
+    elif query.data == "stop_fw":
+        save_settings(active=0)
+        await query.edit_message_text("⛔ فورواد متوقف شد")
+
+# ========= گرفتن یوزرنیم =========
+async def capture_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        return
+    if update.message.chat.type != "private":
+        return
+
+    mode = context.user_data.get("mode")
+    if not mode:
+        return
+
+    text = update.message.text.strip()
+    if not text.startswith("@"):
+        await update.message.reply_text("❌ باید با @ شروع شود")
         return
 
     try:
-        bot.forward_message(
-            db["forward_map"][gid],
-            m.chat.id,
-            m.message_id
-        )
-        db["stats"]["forwarded"] += 1
-        save_db()
+        chat = await context.bot.get_chat(text)
+    except:
+        await update.message.reply_text("❌ پیدا نشد یا دسترسی ندارم")
+        return
+
+    if mode == "set_group" and chat.type in ["group", "supergroup"]:
+        save_settings(source=chat.id)
+        context.user_data["mode"] = None
+        await update.message.reply_text(f"✅ گروه «{chat.title}» ثبت شد")
+
+    elif mode == "set_channel" and chat.type == "channel":
+        save_settings(target=chat.id)
+        context.user_data["mode"] = None
+        await update.message.reply_text(f"✅ چنل «{chat.title}» ثبت شد")
+
+    else:
+        await update.message.reply_text("❌ نوع چت اشتباه است")
+
+# ========= فورواد سریع =========
+async def forward(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    source, target, active = get_settings()
+
+    if not active or not update.message:
+        return
+
+    if update.message.chat_id != source:
+        return
+
+    try:
+        await update.message.forward(chat_id=target)
     except Exception as e:
-        logger.error(e)
+        print("Forward error:", e)
 
-# ---------------- WEBHOOK ----------------
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    update = request.get_json()
-    bot.process_new_updates(
-        [telebot.types.Update.de_json(update)]
-    )
-    return jsonify(ok=True)
+# ========= هندلرها =========
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(buttons))
+app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, capture_username))
+app.add_handler(MessageHandler(filters.ALL & filters.ChatType.GROUPS, forward))
 
-@app.route("/")
-def home():
-    return jsonify(status="online")
+# ========= Flask برای Webhook =========
+flask_app = Flask(__name__)
 
-# ---------------- RUN ----------------
+@flask_app.post(WEBHOOK_PATH)
+async def webhook():
+    update = Update.de_json(request.json, app.bot)
+    await app.process_update(update)
+    return "OK"
+
+# ========= اجرای Render =========
 if __name__ == "__main__":
-    webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if webhook_url:
-        bot.remove_webhook()
-        bot.set_webhook(f"{webhook_url}/webhook")
-    app.run(host="0.0.0.0", port=PORT)
+    app.bot.set_webhook(f"{WEBHOOK_URL}{WEBHOOK_PATH}")
+    flask_app.run(host="0.0.0.0", port=PORT)
